@@ -1,6 +1,6 @@
 # OpsTrack DevOps
 
-OpsTrack is a small internship-oriented DevOps project. This first stage contains a Java 21 Spring Boot REST API for managing tasks with PostgreSQL persistence.
+OpsTrack is a task tracking application with a Java 21 Spring Boot API, React frontend and PostgreSQL persistence.
 
 ## Current Scope
 
@@ -12,9 +12,11 @@ OpsTrack is a small internship-oriented DevOps project. This first stage contain
 - Bean Validation
 - Global exception handling
 - Actuator health endpoint
+- React and Vite frontend
+- Nginx HTTPS reverse proxy
 - Unit and integration tests
 
-Docker and Docker Compose are included for running the API with PostgreSQL. Nginx, Jenkins and Zabbix are intentionally not configured yet.
+Docker Compose runs PostgreSQL, the API, the frontend and the public Nginx reverse proxy. PostgreSQL and the API are available only on the internal Compose network.
 
 ## Requirements
 
@@ -49,20 +51,20 @@ To run the application directly against an available PostgreSQL instance:
 
 ## Run with Docker
 
-Docker Compose builds the Java 21 application image and starts it together with PostgreSQL. Copy the example environment file and replace the placeholder password with a local value:
+Docker Compose builds the application images and starts the complete stack. Copy the example environment file, replace the placeholder database password and point the TLS variables at the existing self-signed certificate and key:
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-The API is available at `http://localhost:8080`. Compose connects the application to PostgreSQL through the internal hostname `postgres`; PostgreSQL is not exposed to the host.
+The UI is available at `https://localhost` and the API at `https://localhost/api/v1/tasks`. A browser warning is expected while using a self-signed certificate. Compose connects the application and PostgreSQL only through the internal network; neither port 8080 nor 5432 is published to the host.
 
 Check service state and health:
 
 ```bash
 docker compose ps
-curl http://localhost:8080/actuator/health
+curl -k https://localhost/actuator/health
 ```
 
 Stop the containers without deleting PostgreSQL data:
@@ -85,6 +87,8 @@ To follow all logs, or only one service's logs:
 docker compose logs -f
 docker compose logs -f app
 docker compose logs -f postgres
+docker compose logs -f frontend
+docker compose logs -f nginx
 ```
 
 ### Docker environment variables
@@ -94,7 +98,10 @@ docker compose logs -f postgres
 | `POSTGRES_DB` | PostgreSQL database name | `opstrack` |
 | `POSTGRES_USER` | PostgreSQL user | `opstrack` |
 | `POSTGRES_PASSWORD` | Local PostgreSQL password; replace the placeholder | `use-a-local-secret` |
-| `APP_PORT` | Host port mapped to container port 8080 | `8080` |
+| `HTTP_PORT` | Public HTTP port (redirects to HTTPS) | `80` |
+| `HTTPS_PORT` | Public HTTPS port | `443` |
+| `TLS_CERT_PATH` | Existing certificate path on the host | `./nginx/certs/certificate.crt` |
+| `TLS_KEY_PATH` | Existing private key path on the host | `./nginx/certs/private.key` |
 | `SPRING_JPA_HIBERNATE_DDL_AUTO` | Hibernate schema behavior | `update` |
 
 Keep real credentials in the local `.env` file. It is excluded from Git; only `.env.example` should be committed.
@@ -103,7 +110,20 @@ Keep real credentials in the local `.env` file. It is excluded from Git; only `.
 
 ```bash
 ./mvnw test
+cd frontend
+npm install
+npm run build
 ```
+
+For frontend development, start the backend separately and run:
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm run dev
+```
+
+Vite proxies relative `/api` requests to `VITE_DEV_API_TARGET`. Production code does not contain a direct backend host dependency.
 
 ## API Endpoints
 
@@ -121,7 +141,7 @@ Base path: `/api/v1/tasks`
 Example create request:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks \
+curl -k -X POST https://localhost/api/v1/tasks \
   -H 'Content-Type: application/json' \
   -d '{"title":"Prepare DevOps pipeline","description":"Plan Docker, Jenkins and monitoring stages","status":"OPEN"}'
 ```
@@ -137,7 +157,7 @@ Valid task statuses:
 Create a task:
 
 ```bash
-curl -i -X POST http://localhost:8080/api/v1/tasks \
+curl -k -i -X POST https://localhost/api/v1/tasks \
   -H 'Content-Type: application/json' \
   -d '{"title":"Prepare Docker setup","description":"Containerize OpsTrack","status":"OPEN"}'
 ```
@@ -145,14 +165,14 @@ curl -i -X POST http://localhost:8080/api/v1/tasks \
 List tasks and retrieve a task by ID:
 
 ```bash
-curl -i http://localhost:8080/api/v1/tasks
-curl -i http://localhost:8080/api/v1/tasks/1
+curl -k -i https://localhost/api/v1/tasks
+curl -k -i https://localhost/api/v1/tasks/1
 ```
 
 Update task `1`:
 
 ```bash
-curl -i -X PUT http://localhost:8080/api/v1/tasks/1 \
+curl -k -i -X PUT https://localhost/api/v1/tasks/1 \
   -H 'Content-Type: application/json' \
   -d '{"title":"Prepare Docker setup","description":"Docker stage verified","status":"DONE"}'
 ```
@@ -160,7 +180,7 @@ curl -i -X PUT http://localhost:8080/api/v1/tasks/1 \
 Delete task `1`:
 
 ```bash
-curl -i -X DELETE http://localhost:8080/api/v1/tasks/1
+curl -k -i -X DELETE https://localhost/api/v1/tasks/1
 ```
 
 ## Error Format

@@ -26,12 +26,36 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-opstrack}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-before-production}
       SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-update}
-    ports:
-      - "${APP_PORT:-8080}:8080"
     networks:
       - opstrack_network
     depends_on:
       postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - opstrack_network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${TLS_CERT_PATH:-./nginx/certs/certificate.crt}:/etc/nginx/tls/certificate.crt:ro
+      - ${TLS_KEY_PATH:-./nginx/certs/private.key}:/etc/nginx/tls/private.key:ro
+    networks:
+      - opstrack_network
+    depends_on:
+      app:
+        condition: service_healthy
+      frontend:
         condition: service_healthy
     restart: unless-stopped
 
