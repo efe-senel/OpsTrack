@@ -40,6 +40,14 @@ pipeline {
                 }
             }
         }
+        stage('Deploy') {
+            steps {
+                dir('opstrack-devops') {
+                     sh 'docker compose up -d --remove-orphans'
+                    sh 'docker compose ps'
+                }
+            }
+        }   
     }
 
     post {
