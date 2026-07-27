@@ -25,6 +25,27 @@ pipeline {
             }
         }
 
+        stage('Prepare Compose Environment') {
+            steps {
+                withCredentials([file(
+                    credentialsId: 'opstrack-env',
+                    variable: 'OPSTRACK_ENV_FILE'
+                )]) {
+                    sh(
+                        label: 'Install Compose environment file',
+                        script: '''
+                            set +x
+                            umask 077
+                            rm -f opstrack-devops/.env
+                            cp -- "$OPSTRACK_ENV_FILE" opstrack-devops/.env
+                            chmod 600 opstrack-devops/.env
+                            test "$(stat -c '%a' opstrack-devops/.env)" = "600"
+                        '''
+                    )
+                }
+            }
+        }
+
         stage('Validate Docker Compose') {
             steps {
                 dir('opstrack-devops') {
@@ -60,6 +81,13 @@ pipeline {
         }
 
         always {
+            sh(
+                label: 'Remove Compose environment file',
+                script: '''
+                    set +x
+                    rm -f opstrack-devops/.env
+                '''
+            )
             echo "Build result: ${currentBuild.currentResult}"
         }
     }
