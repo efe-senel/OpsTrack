@@ -1,0 +1,107 @@
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+discovery.docker "opstrack" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=opstrack-devops"]
+  }
+}
+
+discovery.relabel "opstrack_logs" {
+  targets = discovery.docker.opstrack.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "(app|nginx|frontend)"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    replacement   = "$1"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "app"
+    replacement   = "backend"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "nginx"
+    replacement   = "nginx"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "frontend"
+    replacement   = "frontend"
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "opstrack" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.opstrack_logs.output
+  refresh_interval = "5s"
+  forward_to    = [loki.process.opstrack.receiver]
+}
+
+loki.process "opstrack" {
+  stage.match {
+    selector = "{service=\"backend\"}"
+
+    stage.regex {
+      expression = ".*\\s(?P<level>TRACE|DEBUG|INFO|WARN|ERROR)\\s.*"
+    }
+
+    stage.labels {
+      values = {
+        level = "",
+      }
+    }
+  }
+
+  stage.match {
+    selector = "{service=~\"nginx|frontend\"}"
+
+    stage.regex {
+      expression = ".*\\\"\\s(?P<status>[1-5][0-9]{2})\\s.*"
+    }
+
+    stage.labels {
+      values = {
+        status = "",
+      }
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

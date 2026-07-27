@@ -31,6 +31,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   frontend:
@@ -39,6 +44,11 @@ services:
       dockerfile: Dockerfile
     networks:
       - opstrack_network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   nginx:
@@ -57,13 +67,246 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://127.0.0.1/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.3
+    command: ["-config.file=/etc/loki/loki.yml"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ./logging/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    networks:
+      - logging_network
+      - monitoring_network
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "-version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.12.1
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ./logging/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
+    networks:
+      - logging_network
+    depends_on:
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/bin/alloy", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.3.3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./logging/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./logging/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - logging_network
+    depends_on:
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  zabbix-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${ZABBIX_DB_NAME:?Set ZABBIX_DB_NAME in .env}
+      POSTGRES_USER: ${ZABBIX_DB_USER:?Set ZABBIX_DB_USER in .env}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD:?Set ZABBIX_DB_PASSWORD in .env}
+    volumes:
+      - zabbix_db_data:/var/lib/postgresql/data
+    networks:
+      - monitoring_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:alpine-7.0-latest
+    environment:
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_DB: ${ZABBIX_DB_NAME:?Set ZABBIX_DB_NAME in .env}
+      POSTGRES_USER: ${ZABBIX_DB_USER:?Set ZABBIX_DB_USER in .env}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD:?Set ZABBIX_DB_PASSWORD in .env}
+    volumes:
+      - zabbix_alertscripts:/usr/lib/zabbix/alertscripts
+      - zabbix_externalscripts:/usr/lib/zabbix/externalscripts
+      - ./logging/zabbix/loki-count.sh:/usr/lib/zabbix/externalscripts/loki-count.sh:ro
+    networks:
+      - monitoring_network
+      - opstrack_network
+    depends_on:
+      zabbix-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pidof zabbix_server >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0-latest
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_DB: ${ZABBIX_DB_NAME:?Set ZABBIX_DB_NAME in .env}
+      POSTGRES_USER: ${ZABBIX_DB_USER:?Set ZABBIX_DB_USER in .env}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD:?Set ZABBIX_DB_PASSWORD in .env}
+      PHP_TZ: ${TZ:-Europe/Istanbul}
+    ports:
+      - "${ZABBIX_WEB_PORT:-8082}:8080"
+    networks:
+      - monitoring_network
+    depends_on:
+      zabbix-db:
+        condition: service_healthy
+      zabbix-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  zabbix-agent:
+    image: zabbix/zabbix-agent2:alpine-7.0-latest
+    environment:
+      ZBX_HOSTNAME: ${ZABBIX_AGENT_HOSTNAME:-opstrack-docker-host}
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_ACTIVE: zabbix-server
+      ZBX_HOST_ROOT: /hostfs
+    volumes:
+      - /:/hostfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./zabbix/agent2-host.conf:/etc/zabbix/zabbix_agentd.d/host.conf:ro
+      - ./zabbix/host-metrics.sh:/var/lib/zabbix/host-metrics.sh:ro
+    pid: host
+    privileged: true
+    networks:
+      - monitoring_network
+    depends_on:
+      zabbix-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pidof zabbix_agent2 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  zabbix-bootstrap:
+    image: alpine:3.22
+    environment:
+      ZABBIX_URL: http://zabbix-web:8080/api_jsonrpc.php
+      ZABBIX_ADMIN_USER: ${ZABBIX_ADMIN_USER:-Admin}
+      ZABBIX_ADMIN_PASSWORD: ${ZABBIX_ADMIN_PASSWORD:?Set ZABBIX_ADMIN_PASSWORD in .env}
+      ZABBIX_AGENT_HOSTNAME: ${ZABBIX_AGENT_HOSTNAME:-opstrack-docker-host}
+      ZABBIX_SMTP_SERVER: ${ZABBIX_SMTP_SERVER:?Set ZABBIX_SMTP_SERVER in .env}
+      ZABBIX_SMTP_PORT: ${ZABBIX_SMTP_PORT:?Set ZABBIX_SMTP_PORT in .env}
+      ZABBIX_SMTP_SECURITY: ${ZABBIX_SMTP_SECURITY:?Set ZABBIX_SMTP_SECURITY in .env}
+      ZABBIX_SMTP_EMAIL: ${ZABBIX_SMTP_EMAIL:?Set ZABBIX_SMTP_EMAIL in .env}
+      ZABBIX_SMTP_USERNAME: ${ZABBIX_SMTP_USERNAME:?Set ZABBIX_SMTP_USERNAME in .env}
+      ZABBIX_SMTP_APP_PASSWORD: ${ZABBIX_SMTP_APP_PASSWORD:?Set ZABBIX_SMTP_APP_PASSWORD in .env}
+      ZABBIX_ALERT_RECIPIENT: ${ZABBIX_ALERT_RECIPIENT:?Set ZABBIX_ALERT_RECIPIENT in .env}
+    volumes:
+      - ./zabbix/bootstrap.sh:/bootstrap.sh:ro
+    networks:
+      - monitoring_network
+    depends_on:
+      zabbix-web:
+        condition: service_healthy
+      zabbix-agent:
+        condition: service_healthy
+    command: ["/bin/sh", "/bootstrap.sh"]
+    restart: "no"
 
 volumes:
   postgres_data:
     name: opstrack_postgres_data
+  zabbix_db_data:
+    name: opstrack_zabbix_db_data
+  zabbix_alertscripts:
+    name: opstrack_zabbix_alertscripts
+  zabbix_externalscripts:
+    name: opstrack_zabbix_externalscripts
+  loki_data:
+    name: opstrack_loki_data
+  alloy_data:
+    name: opstrack_alloy_data
+  grafana_data:
+    name: opstrack_grafana_data
 
 networks:
   opstrack_network:
     name: opstrack_network
+    driver: bridge
+  monitoring_network:
+    name: opstrack_monitoring_network
+    driver: bridge
+  logging_network:
+    name: opstrack_logging_network
     driver: bridge

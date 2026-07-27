@@ -14,6 +14,8 @@ OpsTrack is a task tracking application with a Java 21 Spring Boot API, React fr
 - Actuator health endpoint
 - React and Vite frontend
 - Nginx HTTPS reverse proxy
+- Zabbix 7.0 server, web UI and host monitoring agent
+- Loki, Grafana Alloy and Grafana centralized container logging
 - Unit and integration tests
 
 Docker Compose runs PostgreSQL, the API, the frontend and the public Nginx reverse proxy. PostgreSQL and the API are available only on the internal Compose network.
@@ -103,8 +105,265 @@ docker compose logs -f nginx
 | `TLS_CERT_PATH` | Existing certificate path on the host | `./nginx/certs/certificate.crt` |
 | `TLS_KEY_PATH` | Existing private key path on the host | `./nginx/certs/private.key` |
 | `SPRING_JPA_HIBERNATE_DDL_AUTO` | Hibernate schema behavior | `update` |
+| `ZABBIX_DB_NAME` | Dedicated Zabbix PostgreSQL database | `zabbix` |
+| `ZABBIX_DB_USER` | Dedicated Zabbix PostgreSQL user | `zabbix` |
+| `ZABBIX_DB_PASSWORD` | Zabbix database password | `use-another-local-secret` |
+| `ZABBIX_ADMIN_USER` | Zabbix bootstrap administrator | `Admin` |
+| `ZABBIX_ADMIN_PASSWORD` | Zabbix bootstrap administrator password | `zabbix` |
+| `ZABBIX_AGENT_HOSTNAME` | Host name shown in Zabbix | `opstrack-docker-host` |
+| `ZABBIX_WEB_PORT` | Zabbix web UI host port | `8082` |
+| `TZ` | Zabbix web UI timezone | `Europe/Istanbul` |
+| `ZABBIX_SMTP_SERVER` | SMTP server used by the Zabbix Gmail media type | Gmail SMTP hostname |
+| `ZABBIX_SMTP_PORT` | SMTP submission port | `587` |
+| `ZABBIX_SMTP_SECURITY` | SMTP transport security | `STARTTLS` |
+| `ZABBIX_SMTP_EMAIL` | Notification sender address | Local `.env` only |
+| `ZABBIX_SMTP_USERNAME` | SMTP authentication username | Local `.env` only |
+| `ZABBIX_SMTP_APP_PASSWORD` | Google application password | Local `.env` only |
+| `ZABBIX_ALERT_RECIPIENT` | OpsTrack alarm recipient | Local `.env` only |
+| `GRAFANA_PORT` | Grafana web UI host port | `3000` |
+| `GRAFANA_ADMIN_USER` | Local Grafana administrator | `admin` |
+| `GRAFANA_ADMIN_PASSWORD` | Local Grafana administrator password | Local `.env` only |
 
 Keep real credentials in the local `.env` file. It is excluded from Git; only `.env.example` should be committed.
+
+## Monitoring with Zabbix
+
+The Compose stack includes a dedicated Zabbix PostgreSQL database. It does not
+reuse the OpsTrack database or `opstrack_postgres_data`. Zabbix data is stored in
+`opstrack_zabbix_db_data`; scripts use their own named volumes.
+
+The Zabbix Agent 2 container mounts the host filesystem read-only at `/hostfs`
+and shares the host PID namespace. Explicit agent items collect host CPU,
+memory, root-filesystem and network metrics without mistaking container bind
+mounts for host filesystems. The agent port is only available on
+`opstrack_monitoring_network` and is not published to the host.
+
+Start or update the complete stack:
+
+```bash
+cp .env.example .env
+# Replace the placeholder passwords in .env.
+docker compose up -d --build
+docker compose ps -a
+```
+
+Open Zabbix at `http://localhost:8082`. On a new database, sign in with the
+official initial account (`Admin` / `zabbix`) and change its password
+immediately. If it is changed, also update `ZABBIX_ADMIN_PASSWORD` in the local
+`.env`; this keeps the idempotent bootstrap service able to authenticate.
+
+The one-shot `zabbix-bootstrap` service creates:
+
+- the `opstrack-docker-host` host and explicit host-root CPU, RAM, disk and
+  network items;
+- `OpsTrack actuator health`, which expects `"status":"UP"` from
+  `https://nginx/actuator/health`;
+- `OpsTrack HTTPS availability`, which expects HTTP 200 from `https://nginx/`.
+
+### Day 17 triggers and dashboard
+
+The bootstrap also creates or updates these triggers idempotently:
+
+| Trigger | Expression/threshold | Severity |
+| --- | --- | --- |
+| Host CPU utilization | Every collected value remains above 80% for 5 minutes | Warning |
+| Host RAM utilization | Used RAM is above 85% | Warning |
+| Host root disk utilization | Used root filesystem space is above 80% | Warning |
+| Actuator health check | `web.test.fail[OpsTrack actuator health]` is non-zero | High |
+| HTTPS availability | `web.test.fail[OpsTrack HTTPS availability]` is non-zero | High |
+| Zabbix Agent availability | No `agent.ping` data for 3 minutes | Average |
+
+All triggers have `service=opstrack` and `managed-by=bootstrap` tags. Web
+scenarios run once per minute with two retries, so a web alarm is not expected
+to appear immediately after a service stops.
+
+The global dashboard named `OpsTrack Operations` contains:
+
+- a resource graph for CPU, RAM and root-disk utilization;
+- a network receive/transmit throughput graph;
+- an OpsTrack web-monitoring status widget;
+- an active-problems widget filtered to the OpsTrack host.
+
+In the web UI, open **Dashboards → OpsTrack Operations**. Trigger definitions
+are under **Data collection → Hosts → opstrack-docker-host → Triggers**.
+Generated and recovered alarms are under **Monitoring → Problems**.
+
+### Gmail notifications
+
+The bootstrap creates or updates the following objects:
+
+- the enabled `OpsTrack Gmail SMTP` media type using port 587, STARTTLS, peer
+  verification and host verification;
+- an enabled recipient media record on the bootstrap administrator user;
+- the `OpsTrack Gmail notifications` trigger action;
+- problem and recovery HTML message templates.
+
+The notification action matches trigger events tagged
+`service=opstrack`. Its problem operation sends through the Gmail media type,
+and its recovery operation notifies the same involved recipient.
+
+Sender, SMTP username, Google application password and recipient must exist
+only in the Git-ignored `.env`. Do not pass them on the command line or include
+them in logs. Apply changes without displaying the resolved Compose
+configuration:
+
+```bash
+docker compose config --quiet
+docker compose run --rm zabbix-bootstrap
+```
+
+To test both notification directions, use the safe frontend interruption
+procedure below. In the Zabbix UI, inspect delivery under
+**Reports → Action log** and confirm that both the PROBLEM and RECOVERY entries
+have status **Sent**. SMTP acceptance confirms that Zabbix handed each message
+to Gmail; mailbox placement can additionally be checked in the recipient
+mailbox.
+
+To safely verify the HTTPS alarm without stopping the backend health endpoint:
+
+```bash
+docker compose stop frontend
+curl --max-time 15 -k -o /dev/null -w '%{http_code}\n' \
+  https://localhost/
+
+# Allow approximately 1-2 minutes for the web scenario retries, then inspect:
+docker compose logs --since=3m zabbix-server
+
+docker compose start frontend
+until [ "$(docker inspect -f '{{.State.Health.Status}}' \
+  opstrack-devops-frontend-1)" = healthy ]; do sleep 2; done
+curl -k -I https://localhost/
+```
+
+Always start `frontend` again even if an intermediate check fails. This test
+does not remove containers, networks, volumes or database data.
+
+The development certificate is self-signed, so peer and host verification are
+disabled only for these internal Zabbix web scenarios.
+
+Useful checks:
+
+```bash
+docker compose ps -a
+docker compose logs zabbix-server zabbix-agent zabbix-web zabbix-bootstrap
+curl -k https://localhost/actuator/health
+curl -I http://localhost:8082/
+```
+
+Restart the bootstrap after changing its configuration:
+
+```bash
+docker compose run --rm zabbix-bootstrap
+```
+
+Stop without deleting either database:
+
+```bash
+docker compose down
+```
+
+Never add `--volumes` when existing OpsTrack or Zabbix monitoring history must
+be retained.
+
+## Centralized logging
+
+The low-resource logging path is:
+
+```text
+app / nginx / frontend stdout
+          |
+          v
+ Docker json-file logs -- Grafana Alloy --> Loki --> Grafana
+                                           |
+                                           v
+                            Zabbix external items and Gmail action
+```
+
+Grafana Alloy discovers only the `app`, `nginx` and `frontend` containers in
+this Compose project through the read-only Docker socket. Logs receive
+`service`, `compose_service`, `container` and `project` labels:
+
+| Compose service | `service` label | Parsed label |
+| --- | --- | --- |
+| `app` | `backend` | Spring log `level` |
+| `nginx` | `nginx` | HTTP `status` |
+| `frontend` | `frontend` | HTTP `status` |
+
+Promtail is not used because it reached end of life in March 2026. Alloy is its
+supported, lightweight collection replacement and sends logs to Loki through
+the internal-only `logging_network`. Loki has no published host port.
+
+Open Grafana at `http://localhost:3000` and sign in with the credentials from
+the Git-ignored `.env`. The provisioned **OpsTrack Logs** dashboard is under
+**Dashboards → OpsTrack**. Its panels show all selected container logs,
+backend WARN/ERROR entries and public Nginx 4xx/5xx responses. The Loki data
+source is provisioned automatically.
+
+Useful queries in **Explore → Loki**:
+
+```logql
+{service="backend"} |~ "(?i)(WARN|ERROR)"
+{service="nginx", status=~"4..|5.."}
+{compose_service="app"}
+{container="opstrack-devops-nginx-1"}
+```
+
+The Zabbix bootstrap adds two one-minute external items that query the last
+five minutes of Loki data. Their tagged triggers reuse the existing
+`service=opstrack` Gmail action:
+
+| Trigger | Threshold | Severity |
+| --- | --- | --- |
+| Repeated backend ERROR logs | At least 3 entries in 5 minutes | Average |
+| Nginx 5xx response | At least 1 entry in 5 minutes | High |
+
+Inspect them in Zabbix under **Data collection → Hosts →
+opstrack-docker-host → Items/Triggers**. Active and recovered events are under
+**Monitoring → Problems**, and message delivery is under **Reports → Action
+log**. SMTP credentials and recipient values remain only in `.env`.
+
+Each collected application container and each added logging container uses
+Docker's `json-file` rotation with a 10 MiB maximum file and three files per
+container. Loki stores at most seven days in `opstrack_loki_data`; its
+compactor removes expired chunks. These limits prevent unbounded log growth
+while keeping Docker and Loki data separate from both PostgreSQL volumes.
+
+Start or update logging without removing any volume:
+
+```bash
+docker compose config --quiet
+docker compose up -d loki alloy grafana zabbix-server
+docker compose run --rm zabbix-bootstrap
+docker compose ps -a
+```
+
+Safe health and troubleshooting commands:
+
+```bash
+curl -fsS http://localhost:3000/api/health
+docker exec opstrack-devops-grafana-1 \
+  wget -qO- http://loki:3100/ready
+docker compose logs --since=10m loki alloy grafana
+docker compose logs --since=10m app nginx frontend
+docker stats --no-stream
+```
+
+To create a controlled Nginx 5xx log while leaving the backend running, stop
+the frontend briefly and always start it again:
+
+```bash
+docker compose stop frontend
+curl --max-time 15 -k -o /dev/null -w '%{http_code}\n' https://localhost/
+docker compose start frontend
+until [ "$(docker inspect -f '{{.State.Health.Status}}' \
+  opstrack-devops-frontend-1)" = healthy ]; do sleep 2; done
+curl -k https://localhost/actuator/health
+```
+
+The request should return `502`. In Grafana, use
+`{service="nginx", status="502"}`. Zabbix should open the high-severity log
+trigger on its next poll, then recover after the five-minute query window
+expires. Do not use `docker compose down --volumes` during any logging test.
 
 ## Test
 
