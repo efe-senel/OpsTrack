@@ -24,6 +24,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
+    private final CurrentUserService currentUserService;
 
     @Transactional
     public UserResponse register(RegisterRequest request) {
@@ -70,12 +71,8 @@ public class AuthService {
     }
 
     @Transactional(readOnly = true)
-    public UserResponse currentUser(String email) {
-        User user = userRepository
-                .findByEmailIgnoreCase(normalizeEmail(email))
-                .orElseThrow(() -> new UsernameNotFoundException("Authenticated user not found"));
-
-        return UserResponse.from(user);
+    public UserResponse currentUser(Authentication authentication) {
+        return UserResponse.from(currentUserService.require(authentication));
     }
 
     private String normalizeEmail(String email) {

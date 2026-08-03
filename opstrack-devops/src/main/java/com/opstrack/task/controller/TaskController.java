@@ -5,6 +5,7 @@ import com.opstrack.task.dto.TaskResponse;
 import com.opstrack.task.service.TaskService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,29 +29,33 @@ public class TaskController {
 	}
 
 	@GetMapping
-	public List<TaskResponse> findAll() {
-		return taskService.findAll();
+	public List<TaskResponse> findAll(Authentication authentication) {
+		return taskService.findAll(authentication);
 	}
 
 	@GetMapping("/{id}")
-	public TaskResponse findById(@PathVariable Long id) {
-		return taskService.findById(id);
+	public TaskResponse findById(@PathVariable Long id, Authentication authentication) {
+		return taskService.findById(id, authentication);
 	}
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
-	public TaskResponse create(@Valid @RequestBody TaskRequest request) {
-		return taskService.create(request);
+	public TaskResponse create(@Valid @RequestBody TaskRequest request, Authentication authentication) {
+		return taskService.create(request, authentication);
 	}
 
 	@PutMapping("/{id}")
-	public TaskResponse update(@PathVariable Long id, @Valid @RequestBody TaskRequest request) {
-		return taskService.update(id, request);
+	public TaskResponse update(
+			@PathVariable Long id,
+			@Valid @RequestBody TaskRequest request,
+			Authentication authentication
+	) {
+		return taskService.update(id, request, authentication);
 	}
 
 	@DeleteMapping("/{id}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void delete(@PathVariable Long id) {
-		taskService.delete(id);
+	public void delete(@PathVariable Long id, Authentication authentication) {
+		taskService.delete(id, authentication);
 	}
 }

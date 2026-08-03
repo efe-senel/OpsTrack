@@ -54,7 +54,7 @@ public class AuthController {
 
     @GetMapping("/me")
     public UserResponse me(Authentication authentication) {
-        return authService.currentUser(authentication.getName());
+        return authService.currentUser(authentication);
     }
 
     @PostMapping("/login")
