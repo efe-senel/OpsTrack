@@ -1,4 +1,7 @@
-package com.opstrack.task;
+package com.opstrack.task.dto;
+
+import com.opstrack.task.entity.Task;
+import com.opstrack.task.entity.TaskStatus;
 
 import java.time.OffsetDateTime;
 
@@ -10,7 +13,7 @@ public record TaskResponse(
 		OffsetDateTime createdAt,
 		OffsetDateTime updatedAt
 ) {
-	static TaskResponse from(Task task) {
+	public static TaskResponse from(Task task) {
 		return new TaskResponse(
 				task.getId(),
 				task.getTitle(),

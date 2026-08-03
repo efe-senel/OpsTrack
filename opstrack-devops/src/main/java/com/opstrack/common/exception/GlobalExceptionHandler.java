@@ -1,6 +1,6 @@
-package com.opstrack.common;
+package com.opstrack.common.exception;
 
-import com.opstrack.task.TaskNotFoundException;
+import com.opstrack.task.exception.TaskNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

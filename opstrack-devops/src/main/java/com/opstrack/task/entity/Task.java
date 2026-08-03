@@ -1,4 +1,4 @@
-package com.opstrack.task;
+package com.opstrack.task.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

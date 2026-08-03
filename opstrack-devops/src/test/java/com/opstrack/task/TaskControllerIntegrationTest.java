@@ -1,6 +1,9 @@
 package com.opstrack.task;
 
 import com.opstrack.TestcontainersConfiguration;
+import com.opstrack.task.dto.TaskRequest;
+import com.opstrack.task.entity.TaskStatus;
+import com.opstrack.task.repository.TaskRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -12,6 +15,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,9 +43,15 @@ class TaskControllerIntegrationTest {
 		taskRepository.deleteAll();
 
 		String createdTask = mockMvc.perform(post("/api/v1/tasks")
+						.with(user("test-user").roles("USER"))
+						.with(csrf())
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(objectMapper.writeValueAsString(
-								new TaskRequest("Create pipeline", "Add CI steps", TaskStatus.OPEN)
+								new TaskRequest(
+										"Create pipeline",
+										"Add CI steps",
+										TaskStatus.OPEN
+								)
 						)))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.id", notNullValue()))
@@ -50,35 +61,58 @@ class TaskControllerIntegrationTest {
 				.getResponse()
 				.getContentAsString();
 
-		Long id = objectMapper.readTree(createdTask).get("id").asLong();
+		Long id = objectMapper.readTree(createdTask)
+				.get("id")
+				.asLong();
 
-		mockMvc.perform(get("/api/v1/tasks"))
+		mockMvc.perform(get("/api/v1/tasks")
+						.with(user("test-user").roles("USER")))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$", hasSize(1)));
 
 		mockMvc.perform(put("/api/v1/tasks/{id}", id)
+						.with(user("test-user").roles("USER"))
+						.with(csrf())
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(objectMapper.writeValueAsString(
-								new TaskRequest("Create pipeline", "Add Jenkinsfile later", TaskStatus.IN_PROGRESS)
+								new TaskRequest(
+										"Create pipeline",
+										"Add Jenkinsfile later",
+										TaskStatus.IN_PROGRESS
+								)
 						)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.status").value("IN_PROGRESS"))
-				.andExpect(jsonPath("$.description").value("Add Jenkinsfile later"));
+				.andExpect(jsonPath("$.description")
+						.value("Add Jenkinsfile later"));
 
-		mockMvc.perform(delete("/api/v1/tasks/{id}", id))
+		mockMvc.perform(delete("/api/v1/tasks/{id}", id)
+						.with(user("test-user").roles("USER"))
+						.with(csrf()))
 				.andExpect(status().isNoContent());
 
-		mockMvc.perform(get("/api/v1/tasks/{id}", id))
+		mockMvc.perform(get("/api/v1/tasks/{id}", id)
+						.with(user("test-user").roles("USER")))
 				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.message").value("Task not found with id: " + id));
+				.andExpect(jsonPath("$.message")
+						.value("Task not found with id: " + id));
 	}
 
 	@Test
 	void rejectsInvalidCreateRequest() throws Exception {
 		mockMvc.perform(post("/api/v1/tasks")
+						.with(user("test-user").roles("USER"))
+						.with(csrf())
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(objectMapper.writeValueAsString(new TaskRequest("", "Missing title", TaskStatus.OPEN))))
+						.content(objectMapper.writeValueAsString(
+								new TaskRequest(
+										"",
+										"Missing title",
+										TaskStatus.OPEN
+								)
+						)))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.validationErrors.title").value("Title is required"));
+				.andExpect(jsonPath("$.validationErrors.title")
+						.value("Title is required"));
 	}
 }

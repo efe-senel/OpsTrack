@@ -1,4 +1,4 @@
-package com.opstrack.common;
+package com.opstrack.common.exception;
 
 import java.time.OffsetDateTime;
 import java.util.Map;

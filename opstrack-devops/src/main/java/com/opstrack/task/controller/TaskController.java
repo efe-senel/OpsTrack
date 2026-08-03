@@ -1,5 +1,8 @@
-package com.opstrack.task;
+package com.opstrack.task.controller;
 
+import com.opstrack.task.dto.TaskRequest;
+import com.opstrack.task.dto.TaskResponse;
+import com.opstrack.task.service.TaskService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;

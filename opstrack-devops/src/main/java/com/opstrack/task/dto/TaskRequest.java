@@ -1,5 +1,6 @@
-package com.opstrack.task;
+package com.opstrack.task.dto;
 
+import com.opstrack.task.entity.TaskStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 

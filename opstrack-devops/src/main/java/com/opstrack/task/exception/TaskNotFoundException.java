@@ -1,4 +1,4 @@
-package com.opstrack.task;
+package com.opstrack.task.exception;
 
 public class TaskNotFoundException extends RuntimeException {
 
