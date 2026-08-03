@@ -60,7 +60,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-The UI is available at `https://localhost` and the API at `https://localhost/api/v1/tasks`. A browser warning is expected while using a self-signed certificate. Compose connects the application and PostgreSQL only through the internal network; neither port 8080 nor 5432 is published to the host.
+The UI is available at `https://localhost`, the API at `https://localhost/api/v1/tasks`, and Swagger UI at `https://localhost/swagger-ui.html`. The raw OpenAPI document is available at `https://localhost/v3/api-docs`. A browser warning is expected while using a self-signed certificate. Compose connects the application and PostgreSQL only through the internal network; neither port 8080 nor 5432 is published to the host.
 
 Check service state and health:
 
