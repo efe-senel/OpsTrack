@@ -1,5 +1,13 @@
 package com.opstrack.config;
 
+import com.opstrack.common.exception.ApiErrorResponse;
+import tools.jackson.databind.ObjectMapper;
+
+import java.time.OffsetDateTime;
+import java.util.Map;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -49,13 +57,15 @@ public class SecurityConfiguration {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            SecurityContextRepository securityContextRepository
+            SecurityContextRepository securityContextRepository,
+            ObjectMapper objectMapper
     ) throws Exception {
         return http
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",
+                                "/api/v1/auth/csrf",
                                 "/actuator/health",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
@@ -65,6 +75,23 @@ public class SecurityConfiguration {
                 )
                 .securityContext(context -> context
                         .securityContextRepository(securityContextRepository)
+                )
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, exception) -> {
+                            HttpStatus status = HttpStatus.UNAUTHORIZED;
+                            ApiErrorResponse body = new ApiErrorResponse(
+                                    OffsetDateTime.now(),
+                                    status.value(),
+                                    status.getReasonPhrase(),
+                                    "Authentication is required",
+                                    request.getRequestURI(),
+                                    Map.of()
+                            );
+
+                            response.setStatus(status.value());
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            objectMapper.writeValue(response.getOutputStream(), body);
+                        })
                 )
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)

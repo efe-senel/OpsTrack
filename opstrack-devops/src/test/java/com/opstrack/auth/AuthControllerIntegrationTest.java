@@ -162,6 +162,76 @@ class AuthControllerIntegrationTest {
         mockMvc.perform(get("/api/v1/tasks")
                         .session(session))
                 .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Efe"))
+                .andExpect(jsonPath("$.email").value("efe@example.com"));
+    }
+
+    @Test
+    void exposesAndAcceptsCsrfTokenForUnauthenticatedClients() throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/v1/auth/csrf"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.headerName").value("X-CSRF-TOKEN"))
+                .andExpect(jsonPath("$.parameterName").value("_csrf"))
+                .andReturn();
+
+        String responseBody = csrfResult.getResponse().getContentAsString();
+        String token = objectMapper.readTree(responseBody).get("token").asText();
+        String headerName = objectMapper.readTree(responseBody).get("headerName").asText();
+        MockHttpSession session = (MockHttpSession) csrfResult.getRequest().getSession(false);
+
+        RegisterRequest request = new RegisterRequest(
+                "Efe",
+                "efe@example.com",
+                "strongPassword123"
+        );
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(session)
+                        .header(headerName, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void logoutInvalidatesSessionAndProtectedEndpointsReturnApiError() throws Exception {
+        registerUser();
+
+        LoginRequest loginRequest = new LoginRequest(
+                "efe@example.com",
+                "strongPassword123"
+        );
+
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        MockHttpSession session = (MockHttpSession) loginResult
+                .getRequest()
+                .getSession(false);
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .session(session)
+                        .with(csrf()))
+                .andExpect(status().isNoContent());
+
+        assertThat(session.isInvalid()).isTrue();
+
+        mockMvc.perform(get("/api/v1/auth/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"))
+                .andExpect(jsonPath("$.message").value("Authentication is required"))
+                .andExpect(jsonPath("$.path").value("/api/v1/auth/me"))
+                .andExpect(jsonPath("$.validationErrors").isEmpty());
     }
 
     @Test

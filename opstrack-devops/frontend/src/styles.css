@@ -12,6 +12,7 @@ button, select { cursor: pointer; }
 button:disabled, select:disabled { cursor: wait; opacity: .6; }
 
 .app-shell { min-height: 100vh; }
+.header-topline { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
 .app-header {
   position: relative;
   overflow: hidden;
@@ -32,6 +33,12 @@ button:disabled, select:disabled { cursor: wait; opacity: .6; }
 }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: white; text-decoration: none; font-size: 20px; font-weight: 700; }
 .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: #163f35; background: #d8ff6a; }
+.user-menu { display: flex; align-items: center; gap: 14px; }
+.user-menu > span { display: grid; text-align: right; }
+.user-menu strong { font-size: 14px; }
+.user-menu small { color: #b4d4c8; font-size: 12px; }
+.header-button { padding: 9px 12px; border: 1px solid #4a756b; border-radius: 9px; color: white; background: rgba(255, 255, 255, .06); font-weight: 700; }
+.header-button:hover { background: rgba(255, 255, 255, .12); }
 .header-copy { max-width: 680px; margin: 54px 0 34px; }
 .eyebrow { margin: 0 0 8px; color: #537066; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .app-header .eyebrow { color: #b4d4c8; }
@@ -86,14 +93,47 @@ input:focus, textarea:focus, select:focus { border-color: #2b7a62; box-shadow: 0
 .error-message { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; padding: 12px 14px; border-radius: 10px; color: #8d2d29; background: #fff0ef; }
 .error-message button { border: 0; color: inherit; background: none; font-size: 20px; }
 
+.session-loading { display: grid; place-items: center; align-content: center; gap: 16px; min-height: 100vh; color: #537066; }
+.session-loading .brand-mark { width: 46px; height: 46px; font-size: 22px; }
+.session-loading p { margin: 0; }
+.auth-shell { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(420px, 1fr); min-height: 100vh; }
+.auth-intro { display: flex; flex-direction: column; justify-content: space-between; padding: 36px max(36px, calc((100vw - 1240px) / 2)); color: white; background: #163f35; }
+.auth-intro > div { max-width: 620px; margin: auto 0; padding: 80px 0; }
+.auth-intro .eyebrow { color: #b4d4c8; }
+.auth-intro p:last-child { color: #c8d9d3; font-size: 17px; line-height: 1.6; }
+.auth-main { display: grid; place-items: center; padding: 42px; }
+.auth-card { width: min(100%, 470px); padding: 34px; border: 1px solid #dde5df; border-radius: 20px; background: white; box-shadow: 0 14px 36px rgba(31, 58, 49, .08); }
+.auth-copy { margin: 10px 0 26px; color: #687a73; line-height: 1.5; }
+.auth-form { display: grid; gap: 19px; }
+.auth-form label { display: grid; gap: 8px; color: #31453e; font-size: 14px; font-weight: 600; }
+.auth-error { margin: 0; }
+.field-error { color: #a43c38; font-size: 12px; font-weight: 500; }
+.field-hint { color: #82928b; font-size: 11px; font-weight: 400; }
+.success-message { margin-bottom: 20px; padding: 12px 14px; border-radius: 10px; color: #20664f; background: #e0f5e9; }
+.auth-switch { display: flex; align-items: center; justify-content: center; gap: 4px; margin: 24px 0 0; color: #687a73; font-size: 14px; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 800px) {
+  .auth-shell { grid-template-columns: 1fr; }
+  .auth-intro { min-height: 300px; padding: 28px 24px; }
+  .auth-intro > div { padding: 54px 0 12px; }
+  .auth-main { padding: 28px 18px 48px; }
   .header-copy { margin-top: 40px; }
   .summary { gap: 20px; }
   .workspace { grid-template-columns: 1fr; padding-top: 24px; }
   .task-form { position: static; }
 }
 @media (max-width: 520px) {
+  .header-topline { align-items: flex-start; }
+  .user-menu { align-items: flex-end; flex-direction: column; gap: 8px; }
+  .user-menu > span { max-width: 170px; }
+  .user-menu small { overflow: hidden; text-overflow: ellipsis; }
+  .auth-intro { min-height: 260px; padding: 22px 18px; }
+  .auth-intro > div { padding: 44px 0 4px; }
+  .auth-intro h1 { font-size: 34px; }
+  .auth-main { padding: 18px 12px 40px; }
+  .auth-card { padding: 24px 18px; border-radius: 15px; }
+  .auth-switch { align-items: baseline; flex-wrap: wrap; }
   .app-header { padding: 22px 18px; }
   .header-copy { margin: 36px 0 28px; }
   .summary { align-items: flex-start; }

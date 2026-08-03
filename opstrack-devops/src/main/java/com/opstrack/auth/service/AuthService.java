@@ -69,6 +69,15 @@ public class AuthService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public UserResponse currentUser(String email) {
+        User user = userRepository
+                .findByEmailIgnoreCase(normalizeEmail(email))
+                .orElseThrow(() -> new UsernameNotFoundException("Authenticated user not found"));
+
+        return UserResponse.from(user);
+    }
+
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
     }
