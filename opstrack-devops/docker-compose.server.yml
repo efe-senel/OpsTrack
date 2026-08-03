@@ -21,36 +21,20 @@ services:
     restart: unless-stopped
 
   app:
-    image: efesenel/opstrack-api:1.1.0@sha256:8f8c9d42ddcca6f7d78e825e23e4365c33ea7e6e0d5c460ecd930a35ba9f3440
+    image: efesenel/opstrack-api:1.2.0@sha256:357923f5007e65aeba68af71760a97a8cd1d0cbe2bcdfb9dd3f69f1162d59bdc
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-update}
-    networks:
-      - opstrack_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-    mem_limit: 1g
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    restart: unless-stopped
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      SERVER_SERVLET_SESSION_COOKIE_HTTP_ONLY: "true"
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "true"
+      SERVER_SERVLET_SESSION_COOKIE_SAME_SITE: lax
+      SERVER_SERVLET_SESSION_TIMEOUT: 30m
 
   frontend:
-    image: efesenel/opstrack-frontend:1.0.0@sha256:96a23e19f30eb43ac7ac0d90f317b452c256b953965983f6dac05521da171ce9
-    networks:
-      - opstrack_network
-    mem_limit: 128m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    restart: unless-stopped
+    image: efesenel/opstrack-frontend:1.1.0@sha256:7d057b8deba3ff9a305878beb2d7f1453bfe1630975ab17a2119624fa753b260
 
   nginx:
     image: nginx:1.27-alpine
